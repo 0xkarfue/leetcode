@@ -1,0 +1,31 @@
+# --- Rust / Cargo Ignores ---
+# Ignores the heavy build output folders for both backend and worker
+**/target/
+
+# --- TypeScript / React / Node Ignores ---
+# Ignores dependencies for the frontend
+**/node_modules/
+**/.pnpm-store/
+.lockb
+
+# --- Production/Build outputs ---
+**/dist/
+**/build/
+
+# --- Environment Variables & Secrets ---
+# Keep your credentials local!
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- IDEs and OS Files ---
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
