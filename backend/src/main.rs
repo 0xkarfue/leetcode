@@ -1,16 +1,20 @@
 use actix_web::{
-    App, HttpResponse, HttpServer,
+    App, HttpResponse, HttpServer, Responder, post,
     web::{self},
 };
 mod db;
 mod models;
 mod schema;
+use diesel::RunQueryDsl;
 // use diesel::{PgConnection, r2d2::{self, ConnectionManager}};
 use redis::Commands;
 use serde::Deserialize;
 
-use crate::{db::establish_connection, models::User};
-
+use crate::{
+    db::{DbPool, establish_connection, redis_db},
+    models::{NewUser},
+    schema::users,
+};
 
 #[derive(Deserialize)]
 struct Submission {
@@ -25,28 +29,52 @@ struct AppState {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let db_connection = &mut establish_connection();
+    let pool = establish_connection();
+    let redis_client = redis_db();
+    let app_state = web::Data::new(AppState {
+        redis: redis_client,
+    });
 
-    dotenvy::dotenv().ok();
-    let client = redis::Client::open(std::env::var("REDIS_URL").expect("REDIS_URL must be set"))
-        .expect("Failed to create Redis client");
+    let pool_data = web::Data::new(pool);
+
+    println!("Server running at http://127.0.0.1:8080");
 
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(AppState {
-                redis: client.clone()
-            }))
-            .route("/submission", web::post().to(create_submission))
+            .app_data(pool_data.clone()) // Register the pool data
+            .app_data(app_state.clone())
+            .service(create_user)
+            .service(create_submission) // Register the route
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind("127.0.0.1:8080")?
     .run()
     .await
 }
 
+#[post("/signin")]
+async fn create_user(pool: web::Data<DbPool>, body: web::Json<NewUser>) -> impl Responder {
+    let mut conn = pool.get().expect("Failed to get DB connection from pool");
+
+    let new_user = NewUser {
+        username: body.username.clone(),
+        password: body.password.clone(),
+    };
+
+    let result = diesel::insert_into(users::table)
+        .values(&new_user)
+        .execute(&mut conn);
+
+    match result {
+        Ok(_) => HttpResponse::Created().body("User created successfully"),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Database error: {}", e)),
+    }
+}
+
+#[post("/submission")]
 async fn create_submission(
     body: web::Json<Submission>,
     state: web::Data<AppState>,
-) -> HttpResponse {
+) -> impl Responder {
     let mut con = state.redis.get_connection().unwrap();
 
     let submission = serde_json::json!({
@@ -65,14 +93,3 @@ async fn create_submission(
         "data": submission
     }))
 }
-
-async fn create_user(body: web::Json<User>) {
-    let user = serde_json::json!({
-        "username": body.username,
-        "password": body.password
-    }).to_string();
-}
-
-// async fn get_submission( ) {
-
-// }
